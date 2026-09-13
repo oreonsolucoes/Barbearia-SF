@@ -14,6 +14,31 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// ═══════════════════════════════════════════════════════════
+// CICLO MENSAL BASEADO NA DATA DE APROVAÇÃO
+// Retorna a chave "YYYY-MM-DD" do início do ciclo atual.
+// Ex: aprovado dia 15 → ciclo vai de 15/set a 14/out → chave "2026-09-15"
+// ═══════════════════════════════════════════════════════════
+function calcularPeriodoAtual(dataAprovacao) {
+    const agora = new Date();
+    const aprovacao = new Date(dataAprovacao);
+    const diaRenovacao = aprovacao.getDate();
+
+    // Tenta o ciclo que começa neste mês
+    let inicioCiclo = new Date(agora.getFullYear(), agora.getMonth(), diaRenovacao);
+
+    // Se ainda não chegou o dia de renovação neste mês, o ciclo atual começou no mês anterior
+    if (agora < inicioCiclo) {
+        inicioCiclo = new Date(agora.getFullYear(), agora.getMonth() - 1, diaRenovacao);
+    }
+
+    // Formata como "YYYY-MM-DD" para usar como chave no Firebase
+    const y = inicioCiclo.getFullYear();
+    const m = String(inicioCiclo.getMonth() + 1).padStart(2, '0');
+    const d = String(inicioCiclo.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 const containerAgendamentos = document.getElementById('container-agendamentos');
 const btnAddPessoa = document.getElementById('btn-add-pessoa');
 const btnConfirmarTudo = document.getElementById('btn-confirmar-tudo');
@@ -50,7 +75,9 @@ function renderizarSelectServicos(plano = null) {
     const selects = document.querySelectorAll('.cliente-servico');
     const listaOrdenada = Object.entries(servicosDisponiveis)
         .sort(([, a], [, b]) => (a.ordem || 99) - (b.ordem || 99));
-    const mesAtual = new Date().toISOString().slice(0, 7);
+    const periodoAtual = plano?.dataAprovacao
+        ? calcularPeriodoAtual(plano.dataAprovacao)
+        : new Date().toISOString().slice(0, 7);
 
     selects.forEach(sel => {
         const valorAtual = sel.value;
@@ -61,7 +88,7 @@ function renderizarSelectServicos(plano = null) {
             // ── PLANO FLEX ──────────────────────────────────────
             if (plano.isFlex && plano.servicosFlex) {
                 Object.entries(plano.servicosFlex).forEach(([key, sf]) => {
-                    const usos = (plano.usosFlexNoMes?.[mesAtual]?.[key]) || 0;
+                    const usos = (plano.usosFlexNoMes?.[periodoAtual]?.[key]) || 0;
                     const max = sf.maxUsos || 2;
                     const restam = max - usos;
                     const proximo = ['1º', '2º', '3º', '4º'][usos] || `${usos + 1}º`;
@@ -75,7 +102,7 @@ function renderizarSelectServicos(plano = null) {
                     } else {
                         const opt = document.createElement('option');
                         opt.disabled = true;
-                        opt.textContent = `⛔ ${sf.nome} — esgotado este mês`;
+                        opt.textContent = `⛔ ${sf.nome} — esgotado neste ciclo`;
                         sel.appendChild(opt);
                     }
                 });
@@ -86,7 +113,7 @@ function renderizarSelectServicos(plano = null) {
 
                 // ── PLANO NORMAL ─────────────────────────────────────
             } else if (!plano.isFlex) {
-                const usos = (plano.usosNoMes?.[mesAtual]) || 0;
+                const usos = (plano.usosNoMes?.[periodoAtual]) || 0;
                 const maxUsos = plano.maxUsosMes || 4;
 
                 if (usos < maxUsos) {
@@ -99,7 +126,7 @@ function renderizarSelectServicos(plano = null) {
                 } else {
                     const opt = document.createElement('option');
                     opt.disabled = true;
-                    opt.textContent = `⚠️ Usos do plano esgotados este mês — use os serviços avulsos`;
+                    opt.textContent = `⚠️ Usos do plano esgotados neste ciclo — use os serviços avulsos`;
                     sel.appendChild(opt);
                 }
                 const sep = document.createElement('option');
@@ -126,7 +153,9 @@ function renderizarSelectServicos(plano = null) {
 // ═══════════════════════════════════════════════════════════
 function exibirBannerPlano(bloco, ass) {
     removerBannerPlano(bloco);
-    const mesAtual = new Date().toISOString().slice(0, 7);
+    const periodoAtual = ass.dataAprovacao
+        ? calcularPeriodoAtual(ass.dataAprovacao)
+        : new Date().toISOString().slice(0, 7);
     const banner = document.createElement('div');
     banner.id = 'banner-plano';
     banner.style.cssText = 'background:rgba(212,175,55,.12);border:1px solid #d4af37;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:.82rem;color:#d4af37;line-height:1.6;';
@@ -135,7 +164,7 @@ function exibirBannerPlano(bloco, ass) {
         // Banner Flex: mostra contador individual de cada serviço
         let html = `⭐ <strong>${ass.planoNome}</strong> ativo!<br>`;
         Object.entries(ass.servicosFlex).forEach(([key, sf]) => {
-            const usos = (ass.usosFlexNoMes?.[mesAtual]?.[key]) || 0;
+            const usos = (ass.usosFlexNoMes?.[periodoAtual]?.[key]) || 0;
             const max = sf.maxUsos || 2;
             const emoji = usos < max ? '✅' : '⛔';
             html += `${emoji} ${sf.nome}: <strong>${usos}/${max}</strong> usos<br>`;
@@ -143,11 +172,11 @@ function exibirBannerPlano(bloco, ass) {
         banner.innerHTML = html;
     } else {
         // Banner Normal
-        const usos = (ass.usosNoMes?.[mesAtual]) || 0;
+        const usos = (ass.usosNoMes?.[periodoAtual]) || 0;
         const max = ass.maxUsosMes || 4;
         banner.innerHTML = `
       ⭐ <strong>${ass.planoNome}</strong> ativo!
-      Usos este mês: <strong>${usos}/${max}</strong>
+      Usos neste ciclo: <strong>${usos}/${max}</strong>
       ${usos >= max ? '<br>⚠️ Usos esgotados — apenas serviços avulsos disponíveis.' : ''}
     `;
     }
@@ -467,7 +496,6 @@ btnConfirmarTudo.onclick = async (e) => {
     }
 
     const agendamentosParaSubir = [];
-    const mesAtual = new Date().toISOString().slice(0, 7);
 
     for (let bloco of blocos) {
         const nome = bloco.querySelector('.cliente-nome').value;
@@ -492,15 +520,19 @@ btnConfirmarTudo.onclick = async (e) => {
             const sf = ass.servicosFlex?.[flexKey];
             if (!sf) { alert('Serviço do plano não encontrado.'); btnConfirmarTudo.disabled = false; btnConfirmarTudo.innerText = "Confirmar Agendamento(s)"; return; }
 
-            const usosAtual = (ass.usosFlexNoMes?.[mesAtual]?.[flexKey]) || 0;
+            const periodoAtual = ass.dataAprovacao
+                ? calcularPeriodoAtual(ass.dataAprovacao)
+                : new Date().toISOString().slice(0, 7);
+
+            const usosAtual = (ass.usosFlexNoMes?.[periodoAtual]?.[flexKey]) || 0;
             if (usosAtual >= (sf.maxUsos || 2)) {
-                alert(`Usos de "${sf.nome}" esgotados este mês.`);
+                alert(`Usos de "${sf.nome}" esgotados neste ciclo.`);
                 btnConfirmarTudo.disabled = false; btnConfirmarTudo.innerText = "Confirmar Agendamento(s)"; return;
             }
 
-            // 1ª vez no mês = cobra; demais = R$0
+            // 1ª vez no ciclo = cobra; demais = R$0
             const totalUsosAtual = Object.keys(ass.servicosFlex).reduce((sum, k) => {
-                return sum + ((ass.usosFlexNoMes?.[mesAtual]?.[k]) || 0);
+                return sum + ((ass.usosFlexNoMes?.[periodoAtual]?.[k]) || 0);
             }, 0);
             const ehPrimeiro = totalUsosAtual === 0;
             const valorFinal = ehPrimeiro ? Number(ass.planoPreco) : 0;
@@ -520,12 +552,12 @@ btnConfirmarTudo.onclick = async (e) => {
                 flexKey, usoNumero: usosAtual + 1, timestamp: Date.now()
             });
 
-            await update(ref(db, `assinaturas/${whats}/usosFlexNoMes/${mesAtual}`), {
+            await update(ref(db, `assinaturas/${whats}/usosFlexNoMes/${periodoAtual}`), {
                 [flexKey]: usosAtual + 1
             });
 
             if (ehPrimeiro) {
-                await set(ref(db, `planoCobrancas/${mesAtual}/${whats}`), {
+                await set(ref(db, `planoCobrancas/${periodoAtual}/${whats}`), {
                     telefone: whats, nome, planoNome: ass.planoNome,
                     planoPreco: ass.planoPreco, status: 'pendente', criadoEm: Date.now()
                 });
@@ -536,11 +568,14 @@ btnConfirmarTudo.onclick = async (e) => {
             // ══════════════════════════════════════════════
         } else if (servId === '__plano__' && assinaturaAtiva && !assinaturaAtiva.isFlex) {
             const ass = assinaturaAtiva;
-            const usos = (ass.usosNoMes?.[mesAtual]) || 0;
+            const periodoAtual = ass.dataAprovacao
+                ? calcularPeriodoAtual(ass.dataAprovacao)
+                : new Date().toISOString().slice(0, 7);
+            const usos = (ass.usosNoMes?.[periodoAtual]) || 0;
             const maxUsos = ass.maxUsosMes || 4;
 
             if (usos >= maxUsos) {
-                alert('Você já utilizou todos os atendimentos do plano este mês.');
+                alert('Você já utilizou todos os atendimentos do plano neste ciclo.');
                 btnConfirmarTudo.disabled = false; btnConfirmarTudo.innerText = "Confirmar Agendamento(s)"; return;
             }
 
@@ -561,7 +596,7 @@ btnConfirmarTudo.onclick = async (e) => {
                 servicoId: `plano_${ass.planoId}`,
                 servicoNome: nomeServico,
                 valor: valorFinal, valorFinal, valorExtra: 0,
-                data, hora, duracao: 20,
+                data, hora, duracao: 30,
                 formaPagamento: usos === 0 ? 'pendente_plano' : 'plano_incluso',
                 criadoPor: 'cliente', ehPlano: true, isFlex: false,
                 planoId: ass.planoId, planoNome: ass.planoNome,
@@ -569,10 +604,10 @@ btnConfirmarTudo.onclick = async (e) => {
                 usoNumero: usos + 1, timestamp: Date.now()
             });
 
-            await update(ref(db, `assinaturas/${whats}/usosNoMes`), { [mesAtual]: usos + 1 });
+            await update(ref(db, `assinaturas/${whats}/usosNoMes`), { [periodoAtual]: usos + 1 });
 
             if (usos === 0) {
-                await set(ref(db, `planoCobrancas/${mesAtual}/${whats}`), {
+                await set(ref(db, `planoCobrancas/${periodoAtual}/${whats}`), {
                     telefone: whats, nome, planoNome: ass.planoNome,
                     planoPreco: ass.planoPreco, status: 'pendente', criadoEm: Date.now()
                 });
