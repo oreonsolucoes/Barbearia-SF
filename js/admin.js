@@ -2,6 +2,27 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebas
 import { getDatabase, ref, onValue, get, push, remove, update, set, onChildAdded } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
 
+// ═══════════════════════════════════════════════════════════
+// CICLO MENSAL BASEADO NA DATA DE APROVAÇÃO
+// Retorna a chave "YYYY-MM-DD" do início do ciclo atual.
+// ═══════════════════════════════════════════════════════════
+function calcularPeriodoAtual(dataAprovacao) {
+    const agora = new Date();
+    const aprovacao = new Date(dataAprovacao);
+    const diaRenovacao = aprovacao.getDate();
+
+    let inicioCiclo = new Date(agora.getFullYear(), agora.getMonth(), diaRenovacao);
+
+    if (agora < inicioCiclo) {
+        inicioCiclo = new Date(agora.getFullYear(), agora.getMonth() - 1, diaRenovacao);
+    }
+
+    const y = inicioCiclo.getFullYear();
+    const m = String(inicioCiclo.getMonth() + 1).padStart(2, '0');
+    const d = String(inicioCiclo.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 const firebaseConfig = {
   apiKey: "AIzaSyC1mkw9lTCa1khBcTNBHf4nC_MkC9lECIk",
   authDomain: "barbearia-sf1-0.firebaseapp.com",
@@ -176,24 +197,8 @@ function carregarAgendamentos() {
           <button class="btn-delete">Excluir</button>
         </div>`;
 
-      card.querySelector(".btn-delete").onclick = async () => {
-        if (!confirm(`Excluir agendamento de ${ag.cliente}?`)) return;
-        // Se for agendamento de plano, devolve o uso ao contador do cliente
-        if (ag.ehPlano && ag.whatsapp) {
-          const mesDoAg = (ag.data || '').slice(0, 7);
-          if (ag.isFlex && ag.flexKey) {
-            const uRef = ref(db, `assinaturas/${ag.whatsapp}/usosFlexNoMes/${mesDoAg}/${ag.flexKey}`);
-            const uSnap = await get(uRef);
-            const atual = uSnap.val() || 0;
-            if (atual > 0) await set(uRef, atual - 1);
-          } else {
-            const uRef = ref(db, `assinaturas/${ag.whatsapp}/usosNoMes/${mesDoAg}`);
-            const uSnap = await get(uRef);
-            const atual = uSnap.val() || 0;
-            if (atual > 0) await set(uRef, atual - 1);
-          }
-        }
-        await remove(ref(db, `agendamentos/${id}`));
+      card.querySelector(".btn-delete").onclick = () => {
+        if (confirm(`Excluir agendamento de ${ag.cliente}?`)) remove(ref(db, `agendamentos/${id}`));
       };
       listaAgendamentos.appendChild(card);
       const dropdownContainer = card.querySelector('.dropdown-servico');
@@ -643,21 +648,11 @@ function carregarAssinaturasPendentes() {
       const statusLabel = ass.status === 'ativo' ? '✅ Ativo' : ass.status === 'pendente' ? '⏳ Pendente' : '❌ Inativo';
       const criado = ass.criadoEm ? new Date(ass.criadoEm).toLocaleDateString('pt-BR') : '—';
 
-      // Contagem de usos no mês atual
-      const mesAtual = new Date().toISOString().slice(0,7);
-      const limiteReal = ass.maxUsosMes || 4;
-      let textoUsos;
-      if (ass.isFlex) {
-        const flexMes = (ass.usosFlexNoMes && ass.usosFlexNoMes[mesAtual]) || {};
-        const totalFlex = Object.values(flexMes).reduce((s, n) => s + (n || 0), 0);
-        const detalhe = Object.entries(ass.servicosFlex || {})
-          .map(([k, sf]) => `${sf.nome}: ${(flexMes[k] || 0)}/${sf.maxUsos || 2}`)
-          .join(' · ');
-        textoUsos = `${totalFlex}/${limiteReal} (${detalhe})`;
-      } else {
-        const usos = (ass.usosNoMes && ass.usosNoMes[mesAtual]) || 0;
-        textoUsos = `${usos}/${limiteReal}`;
-      }
+      // Contagem de usos no ciclo atual (baseado na data de aprovação)
+      const periodoAtual = ass.dataAprovacao
+          ? calcularPeriodoAtual(ass.dataAprovacao)
+          : new Date().toISOString().slice(0, 7);
+      const usos = (ass.usosNoMes && ass.usosNoMes[periodoAtual]) || 0;
 
       card.style.cssText = `background:rgba(255,255,255,.05);border:1px solid #333;border-left:4px solid ${statusColor};border-radius:8px;padding:16px;margin-bottom:12px;`;
       card.innerHTML = `
@@ -666,7 +661,7 @@ function carregarAssinaturasPendentes() {
             <strong style="color:#fff;font-size:1rem;">${ass.nome || '—'}</strong>
             <span style="font-size:11px;background:${statusColor};color:#000;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:bold;">${statusLabel}</span><br>
             <small style="color:#aaa;">📞 ${tel} | Plano: <strong style="color:#d4af37;">${ass.planoNome || '—'}</strong></small><br>
-            <small style="color:#888;">Cadastrado: ${criado} | Usos este mês: ${textoUsos}</small><br>
+            <small style="color:#888;">Cadastrado: ${criado} | Usos este mês: ${usos}/4</small><br>
             ${ass.adicionais && ass.adicionais.length ? `<small style="color:#aaa;">Adicionais: ${ass.adicionais.join(', ')}</small>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;min-width:130px;">
@@ -675,7 +670,6 @@ function carregarAssinaturasPendentes() {
               <button onclick="rejeitarAssinatura('${tel}')" style="background:#e74c3c;border:none;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">❌ Rejeitar</button>
             ` : ''}
             ${ass.status === 'ativo' ? `
-              <button onclick="editarUsosPlano('${tel}')" style="background:#9b59b6;border:none;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">✏️ Editar usos</button>
               <button onclick="inativarAssinatura('${tel}')" style="background:#e67e22;border:none;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">⏸ Inativar</button>
               <button onclick="ativarAssinatura('${tel}')" style="background:#3498db;border:none;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">🔄 Renovar mês</button>
             ` : ''}
@@ -695,7 +689,8 @@ window.aprovarAssinatura = async function(tel) {
   await update(ref(db, `assinaturas/${tel}`), {
     status: 'ativo',
     dataAprovacao: Date.now(),
-    usosNoMes: { [new Date().toISOString().slice(0,7)]: 0 },
+    usosNoMes: {},
+    usosFlexNoMes: {},
     cobrancaNoMes: {}
   });
   alert('Assinatura aprovada! O cliente já pode agendar pelo plano.');
@@ -713,53 +708,15 @@ window.inativarAssinatura = async function(tel) {
 };
 
 window.ativarAssinatura = async function(tel) {
-  const mesAtual = new Date().toISOString().slice(0,7);
-  await update(ref(db, `assinaturas/${tel}`), {
-    status: 'ativo',
-    [`usosNoMes/${mesAtual}`]: 0
-  });
-  alert('Plano reativado / mês renovado!');
+  // Ao reativar, apenas seta status como ativo.
+  // O ciclo é calculado automaticamente a partir do dataAprovacao existente.
+  await update(ref(db, `assinaturas/${tel}`), { status: 'ativo' });
+  alert('Plano reativado!');
 };
 
 window.excluirAssinatura = async function(tel) {
   if (!confirm(`Excluir completamente a assinatura de ${tel}?`)) return;
   await remove(ref(db, `assinaturas/${tel}`));
-};
-
-// ✏️ Barbeiro ajusta manualmente os usos (cliente que cortou sem agendar pelo site)
-window.editarUsosPlano = async function(tel) {
-  const mesAtual = new Date().toISOString().slice(0,7);
-  const snap = await get(ref(db, `assinaturas/${tel}`));
-  if (!snap.exists()) { alert('Assinatura não encontrada.'); return; }
-  const ass = snap.val();
-
-  if (ass.isFlex) {
-    // Plano flex: ajusta cada serviço separadamente
-    const servicos = ass.servicosFlex || {};
-    const flexMes = (ass.usosFlexNoMes && ass.usosFlexNoMes[mesAtual]) || {};
-    for (const [key, sf] of Object.entries(servicos)) {
-      const atual = flexMes[key] || 0;
-      const max = sf.maxUsos || 2;
-      const resp = prompt(`${sf.nome}\nUsos atuais este mês: ${atual} (máx ${max})\n\nDigite a nova quantidade de USOS já consumidos:`, atual);
-      if (resp === null) continue; // cancelou este serviço
-      let novo = parseInt(resp, 10);
-      if (isNaN(novo) || novo < 0) { alert('Valor inválido, ignorado.'); continue; }
-      if (novo > max) { alert(`Máximo para ${sf.nome} é ${max}. Ajustado para ${max}.`); novo = max; }
-      await set(ref(db, `assinaturas/${tel}/usosFlexNoMes/${mesAtual}/${key}`), novo);
-    }
-    alert('Usos do plano flex atualizados!');
-  } else {
-    // Plano normal
-    const atual = (ass.usosNoMes && ass.usosNoMes[mesAtual]) || 0;
-    const max = ass.maxUsosMes || 4;
-    const resp = prompt(`${ass.planoNome}\nUsos atuais este mês: ${atual} (máx ${max})\n\nDigite a nova quantidade de USOS já consumidos:`, atual);
-    if (resp === null) return;
-    let novo = parseInt(resp, 10);
-    if (isNaN(novo) || novo < 0) { alert('Valor inválido.'); return; }
-    if (novo > max) { alert(`Máximo é ${max}. Ajustado para ${max}.`); novo = max; }
-    await set(ref(db, `assinaturas/${tel}/usosNoMes/${mesAtual}`), novo);
-    alert('Usos atualizados!');
-  }
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -875,11 +832,10 @@ document.getElementById('btn-salvar-plano')?.addEventListener('click', async () 
   const destaque  = document.getElementById('plano-destaque').checked;
   const beneficios= document.getElementById('plano-beneficios').value.split('\n').map(b=>b.trim()).filter(Boolean);
   const adicionais= Array.from(document.querySelectorAll('#plano-adicionais-checks input:checked')).map(c=>c.value);
-  const maxUsosMes = Number(document.getElementById('plano-max-usos')?.value) || 4;
 
   if (!nome || !preco) return alert('Preencha pelo menos nome e preço.');
 
-  const dados = { nome, descricao, preco, ordem, destaque, beneficios, adicionais, maxUsosMes };
+  const dados = { nome, descricao, preco, ordem, destaque, beneficios, adicionais, maxUsosMes: 4 };
 
   if (editId) {
     await update(ref(db, `planos/${editId}`), dados);
