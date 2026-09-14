@@ -652,7 +652,19 @@ function carregarAssinaturasPendentes() {
       const periodoAtual = ass.dataAprovacao
           ? calcularPeriodoAtual(ass.dataAprovacao)
           : new Date().toISOString().slice(0, 7);
-      const usos = (ass.usosNoMes && ass.usosNoMes[periodoAtual]) || 0;
+
+      let usosTexto = '';
+      if (ass.isFlex && ass.servicosFlex) {
+          const partes = Object.entries(ass.servicosFlex).map(([key, sf]) => {
+              const usos = (ass.usosFlexNoMes?.[periodoAtual]?.[key]) || 0;
+              return `${sf.nome}: ${usos}/${sf.maxUsos || 2}`;
+          });
+          usosTexto = partes.join(' | ');
+      } else {
+          const usos = (ass.usosNoMes && ass.usosNoMes[periodoAtual]) || 0;
+          const max = ass.maxUsosMes || 4;
+          usosTexto = `${usos}/${max}`;
+      }
 
       card.style.cssText = `background:rgba(255,255,255,.05);border:1px solid #333;border-left:4px solid ${statusColor};border-radius:8px;padding:16px;margin-bottom:12px;`;
       card.innerHTML = `
@@ -661,7 +673,7 @@ function carregarAssinaturasPendentes() {
             <strong style="color:#fff;font-size:1rem;">${ass.nome || '—'}</strong>
             <span style="font-size:11px;background:${statusColor};color:#000;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:bold;">${statusLabel}</span><br>
             <small style="color:#aaa;">📞 ${tel} | Plano: <strong style="color:#d4af37;">${ass.planoNome || '—'}</strong></small><br>
-            <small style="color:#888;">Cadastrado: ${criado} | Usos este mês: ${usos}/4</small><br>
+            <small style="color:#888;">Cadastrado: ${criado} | Usos neste ciclo: ${usosTexto}</small><br>
             ${ass.adicionais && ass.adicionais.length ? `<small style="color:#aaa;">Adicionais: ${ass.adicionais.join(', ')}</small>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;min-width:130px;">
@@ -689,8 +701,6 @@ window.aprovarAssinatura = async function(tel) {
   await update(ref(db, `assinaturas/${tel}`), {
     status: 'ativo',
     dataAprovacao: Date.now(),
-    usosNoMes: {},
-    usosFlexNoMes: {},
     cobrancaNoMes: {}
   });
   alert('Assinatura aprovada! O cliente já pode agendar pelo plano.');
@@ -708,10 +718,13 @@ window.inativarAssinatura = async function(tel) {
 };
 
 window.ativarAssinatura = async function(tel) {
-  // Ao reativar, apenas seta status como ativo.
-  // O ciclo é calculado automaticamente a partir do dataAprovacao existente.
-  await update(ref(db, `assinaturas/${tel}`), { status: 'ativo' });
-  alert('Plano reativado!');
+  const mesAtual = new Date().toISOString().slice(0,7);
+  await update(ref(db, `assinaturas/${tel}`), {
+    status: 'ativo',
+    dataAprovacao: Date.now(),
+    [`usosNoMes/${mesAtual}`]: 0
+  });
+  alert('Plano reativado / mês renovado!');
 };
 
 window.excluirAssinatura = async function(tel) {
