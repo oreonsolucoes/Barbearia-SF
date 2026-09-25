@@ -688,6 +688,7 @@ function carregarAssinaturasPendentes() {
             ${ass.status === 'inativo' ? `
               <button onclick="ativarAssinatura('${tel}')" style="background:#2ecc71;border:none;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">▶ Reativar</button>
             ` : ''}
+            <button onclick="editarUsosAssinatura('${tel}')" style="background:transparent;border:1px solid #d4af37;color:#d4af37;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;">✏️ Editar Usos</button>
             <button onclick="excluirAssinatura('${tel}')" style="background:transparent;border:1px solid #555;color:#888;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;">🗑 Excluir</button>
           </div>
         </div>`;
@@ -695,6 +696,81 @@ function carregarAssinaturasPendentes() {
     });
   });
 }
+
+window.editarUsosAssinatura = async function(tel) {
+  const snap = await get(ref(db, `assinaturas/${tel}`));
+  if (!snap.exists()) return alert('Assinatura não encontrada.');
+  const ass = snap.val();
+
+  const periodoAtual = ass.dataAprovacao
+    ? calcularPeriodoAtual(ass.dataAprovacao)
+    : new Date().toISOString().slice(0, 7);
+
+  // Remove modal anterior se existir
+  const modalAntigo = document.getElementById('modal-editar-usos');
+  if (modalAntigo) modalAntigo.remove();
+
+  let camposUsos = '';
+
+  if (ass.isFlex && ass.servicosFlex) {
+    // Plano Flex — um campo por serviço
+    camposUsos = Object.entries(ass.servicosFlex).map(([key, sf]) => {
+      const usos = (ass.usosFlexNoMes?.[periodoAtual]?.[key]) || 0;
+      return `
+        <div style="margin-bottom:12px;">
+          <label style="color:#ccc;font-size:13px;display:block;margin-bottom:4px;">${sf.nome} (máx. ${sf.maxUsos || 2})</label>
+          <input type="number" id="uso-flex-${key}" value="${usos}" min="0" max="${sf.maxUsos || 99}"
+            style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#1a1a1a;color:#fff;font-size:14px;box-sizing:border-box;">
+        </div>`;
+    }).join('');
+  } else {
+    // Plano normal — único campo
+    const usos = (ass.usosNoMes && ass.usosNoMes[periodoAtual]) || 0;
+    const max = ass.maxUsosMes || 4;
+    camposUsos = `
+      <div style="margin-bottom:12px;">
+        <label style="color:#ccc;font-size:13px;display:block;margin-bottom:4px;">Usos neste ciclo (máx. ${max})</label>
+        <input type="number" id="uso-normal" value="${usos}" min="0" max="${max}"
+          style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#1a1a1a;color:#fff;font-size:14px;box-sizing:border-box;">
+      </div>`;
+  }
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-editar-usos';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `
+    <div style="background:#1e1e1e;border:1px solid #d4af37;border-radius:12px;padding:24px;width:100%;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+      <h3 style="color:#d4af37;margin:0 0 4px;">✏️ Editar Usos</h3>
+      <p style="color:#aaa;font-size:13px;margin:0 0 16px;">${ass.nome || tel} · Ciclo: ${periodoAtual}</p>
+      ${camposUsos}
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button id="btn-salvar-usos" style="flex:1;background:#d4af37;border:none;color:#000;padding:10px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:14px;">💾 Salvar</button>
+        <button onclick="document.getElementById('modal-editar-usos').remove()" style="flex:1;background:transparent;border:1px solid #555;color:#aaa;padding:10px;border-radius:8px;cursor:pointer;font-size:14px;">Cancelar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  document.getElementById('btn-salvar-usos').onclick = async () => {
+    if (ass.isFlex && ass.servicosFlex) {
+      const updates = {};
+      for (const [key] of Object.entries(ass.servicosFlex)) {
+        const val = parseInt(document.getElementById(`uso-flex-${key}`)?.value || '0', 10);
+        updates[`assinaturas/${tel}/usosFlexNoMes/${periodoAtual}/${key}`] = isNaN(val) ? 0 : val;
+      }
+      await update(ref(db), updates);
+    } else {
+      const val = parseInt(document.getElementById('uso-normal')?.value || '0', 10);
+      await update(ref(db, `assinaturas/${tel}/usosNoMes`), {
+        [periodoAtual]: isNaN(val) ? 0 : val
+      });
+    }
+    modal.remove();
+    alert('✅ Usos atualizados com sucesso!');
+  };
+
+  // Fecha ao clicar fora
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+};
 
 window.aprovarAssinatura = async function(tel) {
   if (!confirm(`Aprovar assinatura de ${tel}?`)) return;
