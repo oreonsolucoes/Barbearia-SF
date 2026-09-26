@@ -390,7 +390,7 @@ async function gerarHorarios(bloco) {
     bloco.querySelector('.secao-horarios').style.display = 'block';
     grid.innerHTML = "Carregando...";
 
-    // Duração: flex usa serviço real, plano normal usa 30min, avulso usa duracao do serviço
+    // Duração: flex usa serviço real, plano normal usa duração do serviço corte (ou 20), avulso usa duracao do serviço
     let duracaoServico = 20;
     if (servId.startsWith('__flex__') && assinaturaAtiva?.servicosFlex) {
         const flexKey = servId.replace('__flex__', '');
@@ -399,7 +399,7 @@ async function gerarHorarios(bloco) {
             duracaoServico = Number(servicosDisponiveis[sfId].duracao) || 20;
         }
     } else if (servId === '__plano__') {
-        duracaoServico = 20;
+        duracaoServico = Number(servicosDisponiveis[assinaturaAtiva?.servicoId]?.duracao || servicosDisponiveis['corte']?.duracao) || 20;
     } else if (servicosDisponiveis[servId]) {
         duracaoServico = Number(servicosDisponiveis[servId].duracao) || 20;
     }
@@ -596,7 +596,7 @@ btnConfirmarTudo.onclick = async (e) => {
                 servicoId: `plano_${ass.planoId}`,
                 servicoNome: nomeServico,
                 valor: valorFinal, valorFinal, valorExtra: 0,
-                data, hora, duracao: 30,
+                data, hora, duracao: Number(servicosDisponiveis[ass.servicoId]?.duracao || servicosDisponiveis['corte']?.duracao) || 20,
                 formaPagamento: usos === 0 ? 'pendente_plano' : 'plano_incluso',
                 criadoPor: 'cliente', ehPlano: true, isFlex: false,
                 planoId: ass.planoId, planoNome: ass.planoNome,
