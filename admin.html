@@ -48,6 +48,34 @@
       .btn-form-plano.cancelar { background: transparent; border: 1px solid #555; color: #888; }
       .btn-form-plano:hover { opacity: .85; }
 
+      /* ── DATAS ESPECIAIS ── */
+      .form-data-esp {
+        display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;
+        background: rgba(255,255,255,.05);
+        border: 1px solid rgba(212,175,55,.3);
+        border-radius: 10px; padding: 18px;
+      }
+      .form-data-esp select,
+      .form-data-esp input[type="time"],
+      .form-data-esp input[type="text"] {
+        width: 100%; padding: 10px 12px; border-radius: 7px;
+        border: 1px solid #444; background: #1a1a1a; color: #fff;
+        font-size: .9rem; outline: none; font-family: 'Poppins', sans-serif;
+        min-height: 46px; box-sizing: border-box;
+      }
+      .form-data-esp select:focus,
+      .form-data-esp input:focus { border-color: #d4af37; }
+      .card-data-esp {
+        display: flex; justify-content: space-between; align-items: center;
+        flex-wrap: wrap; gap: 10px; margin-bottom: 10px; padding: 14px 16px;
+        background: rgba(255,255,255,.05); border: 1px solid #333;
+        border-left: 4px solid #d4af37; border-radius: 8px;
+      }
+      .card-data-esp.fechado { border-left-color: #e74c3c; }
+      .card-data-esp.passada { opacity: .5; }
+      .card-data-esp .data-esp-titulo { color: #fff; font-weight: 600; }
+      .card-data-esp small { color: #aaa; }
+
       /* badge contador pendentes */
       .badge-pendente {
         display: inline-block; background: #e74c3c; color: #fff;
@@ -79,6 +107,7 @@
         <button id="btn-agendar-manual">Agendar Cliente</button>
         <button id="btn-servicos">Serviços</button>
         <button id="btn-recesso">Folga</button>
+        <button id="btn-datas-esp">📆 Datas Especiais</button>
         <button id="btn-clientes-bloq">Clientes Bloqueados</button>
         <button id="btn-assinaturas">📋 Assinaturas <span class="badge-pendente" id="badge-pendente" style="display:none;">0</span></button>
         <button id="btn-ger-planos">💈 Gerenciar Planos</button>
@@ -177,6 +206,51 @@
             <button id="btn-remover-recesso" class="btn-delete">Remover Folga/Feriado e Abrir Agenda</button>
           </div>
         </div>
+      </section>
+
+      <!-- SEÇÃO: DATAS ESPECIAIS (horário diferente em dias específicos) -->
+      <section id="sec-datas-esp" style="display:none;">
+        <h2 style="color:#d4af37;">📆 Datas Especiais</h2>
+        <p style="opacity:.75;font-size:14px;margin-bottom:20px;">
+          Altere o horário de funcionamento em um dia específico (ex.: 24/12 e 31/12 com horário reduzido,
+          ou abrir num domingo). A data especial vale no lugar do horário semanal só naquele dia.
+        </p>
+
+        <div id="form-data-esp" class="form-data-esp">
+          <div class="filter-group">
+            <label for="esp-data">Data</label>
+            <input type="date" id="esp-data">
+          </div>
+          <div class="filter-group">
+            <label for="esp-tipo">Situação</label>
+            <select id="esp-tipo">
+              <option value="horario">Horário especial</option>
+              <option value="fechado">Fechado o dia todo</option>
+            </select>
+          </div>
+          <div class="filter-group" id="esp-grupo-inicio">
+            <label for="esp-inicio">Abre às</label>
+            <input type="time" id="esp-inicio" value="09:00">
+          </div>
+          <div class="filter-group" id="esp-grupo-fim">
+            <label for="esp-fim">Fecha às</label>
+            <input type="time" id="esp-fim" value="14:00">
+          </div>
+          <div class="filter-group" style="flex:1;min-width:200px;">
+            <label for="esp-motivo">Motivo (opcional)</label>
+            <input type="text" id="esp-motivo" placeholder="Ex: Véspera de Natal" maxlength="60">
+          </div>
+          <button id="btn-salvar-data-esp" class="btn-save" style="height:46px;">💾 Salvar Data</button>
+        </div>
+        <p style="font-size:12px;opacity:.6;margin:8px 0 22px;">
+          Se já existir uma data especial nesse dia, ela será substituída.
+        </p>
+
+        <h3 style="color:#d4af37;margin-bottom:12px;">Próximas datas especiais</h3>
+        <div id="lista-datas-esp"></div>
+        <button id="btn-limpar-datas-esp-passadas" class="btn-form-plano cancelar" style="display:none;margin-top:14px;">
+          🧹 Remover datas já passadas
+        </button>
       </section>
 
       <!-- SEÇÃO: CLIENTES BLOQUEADOS -->

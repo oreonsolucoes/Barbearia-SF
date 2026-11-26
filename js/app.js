@@ -64,6 +64,11 @@ onValue(ref(db, 'servicos'), (snapshot) => {
 onValue(ref(db, 'horarios_funcionamento'), (snapshot) => {
     horariosFuncionamento = snapshot.val() || {};
 });
+// Datas especiais (horarios_especiais/AAAA-MM-DD) substituem o horário semanal naquele dia
+let horariosEspeciais = {};
+onValue(ref(db, 'horarios_especiais'), (snapshot) => {
+    horariosEspeciais = snapshot.val() || {};
+});
 
 // ═══════════════════════════════════════════════════════════
 // RENDERIZAR SELECT
@@ -405,8 +410,13 @@ async function gerarHorarios(bloco) {
     }
 
     const diaChave = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][new Date(dataAg + 'T00:00:00').getDay()];
-    const config = horariosFuncionamento[diaChave];
-    if (!config || config.fechado) { grid.innerHTML = "<p>Fechado neste dia.</p>"; return; }
+    const especial = horariosEspeciais[dataAg];
+    const config = especial || horariosFuncionamento[diaChave];
+    if (!config || config.fechado) {
+        const motivo = especial && especial.motivo ? ` (${especial.motivo})` : '';
+        grid.innerHTML = `<p>Fechado neste dia${motivo}.</p>`;
+        return;
+    }
 
     const agora = new Date();
     const ehHoje = dataAg === agora.toLocaleDateString('en-CA');

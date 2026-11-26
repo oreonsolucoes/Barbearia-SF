@@ -357,6 +357,13 @@ onValue(ref(db, 'horarios_funcionamento'), (snap) => {
   render();
 }, (err) => console.error(err));
 
+// datas especiais (horário diferente em dias específicos, ex.: 24/12)
+let horariosEspeciais = {};
+onValue(ref(db, 'horarios_especiais'), (snap) => {
+  horariosEspeciais = snap.val() || {};
+  render();
+}, (err) => console.error(err));
+
 // escuta o Firebase
 onValue(ref(db, 'agendamentos'), (snap) => {
   marcarConexao(true);
@@ -516,7 +523,7 @@ function renderLivres(){
   const agora = d.getHours()*60 + d.getMinutes();
   // chave do dia da semana no formato do banco
   const chaveDia = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'][d.getDay()];
-  const config = horariosFuncionamento[chaveDia];
+  const config = horariosEspeciais[hojeStr()] || horariosFuncionamento[chaveDia];
 
   if (!config || config.fechado){
     lista.innerHTML = '<span class="livres-vazio">Fechado hoje</span>';

@@ -261,20 +261,24 @@ function gerarGradeBloqueio() {
   if (!dataSelecionada) return;
   const diasSemana = ["domingo","segunda","terça","quarta","quinta","sexta","sábado"];
   const diaNome = diasSemana[new Date(dataSelecionada + 'T00:00:00').getDay()];
+  // Data especial (horarios_especiais/AAAA-MM-DD) tem prioridade sobre o horário semanal
+  onValue(ref(db, `horarios_especiais/${dataSelecionada}`), (espSnapshot) => {
+  const especial = espSnapshot.val();
   onValue(ref(db, `horarios_funcionamento/${diaNome}`), (funcSnapshot) => {
-    const config = funcSnapshot.val();
+    const config = especial || funcSnapshot.val();
     if (!config || config.fechado) {
-      gradeBloqueio.innerHTML = `<p style='grid-column:1/-1;text-align:center;padding:20px;color:var(--vermelho);'>Barbearia fechada (${diaNome}).</p>`;
+      const motivo = especial && especial.motivo ? ` — ${especial.motivo}` : '';
+      const rotulo = especial ? `data especial${motivo}` : diaNome;
+      gradeBloqueio.innerHTML = `<p style='grid-column:1/-1;text-align:center;padding:20px;color:var(--vermelho);'>Barbearia fechada (${rotulo}).</p>`;
       return;
     }
     onValue(agendamentosRef, (snapshot) => {
       const agendados = snapshot.val() || {};
       gradeBloqueio.innerHTML = "";
       const dataBR = dataSelecionada.split('-').reverse().join('/');
-      for (let h = parseInt(config.inicio); h <= parseInt(config.fim); h++) {
-        for (let m = 0; m < 60; m += 20) {
-          if (h === parseInt(config.fim) && m > 0) break;
-          const horaFormatada = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+      for (let t = paraMinutos(config.inicio); t <= paraMinutos(config.fim); t += 20) {
+        {
+          const horaFormatada = `${String(Math.floor(t / 60)).padStart(2,'0')}:${String(t % 60).padStart(2,'0')}`;
           const agId = Object.keys(agendados).find(id => agendados[id].data === dataSelecionada && agendados[id].hora === horaFormatada);
           const ocupado = !!agId;
           const ehBloqueio = ocupado && agendados[agId].cliente === "BLOQUEADO";
@@ -296,6 +300,7 @@ function gerarGradeBloqueio() {
         }
       }
     });
+  }, { onlyOnce: true });
   }, { onlyOnce: true });
 }
 
@@ -332,6 +337,7 @@ const btnTabAg          = document.getElementById('btn-agendamentos');
 const btnTabServ        = document.getElementById('btn-servicos');
 const btnTabBloq        = document.getElementById('btn-bloqueio');
 const btnTabRecesso     = document.getElementById('btn-recesso');
+const btnTabDatasEsp    = document.getElementById('btn-datas-esp');
 const btnTabClientesBloq= document.getElementById('btn-clientes-bloq');
 const btnTabAssinaturas = document.getElementById('btn-assinaturas');
 const btnTabGerPlanos   = document.getElementById('btn-ger-planos');
@@ -342,6 +348,7 @@ function gerenciarAbas(abaAtiva) {
     serv:        'sec-servicos',
     bloq:        'sec-bloqueio',
     recesso:     'sec-recesso',
+    datasesp:    'sec-datas-esp',
     manual:      'sec-agendar-manual',
     clientes:    'sec-clientes-bloqueados',
     assinaturas: 'sec-assinaturas',
@@ -353,7 +360,7 @@ function gerenciarAbas(abaAtiva) {
   });
   const btns = {
     ag: btnTabAg, serv: btnTabServ, bloq: btnTabBloq,
-    recesso: btnTabRecesso, manual: btnTabManual,
+    recesso: btnTabRecesso, datasesp: btnTabDatasEsp, manual: btnTabManual,
     clientes: btnTabClientesBloq, assinaturas: btnTabAssinaturas,
     gerplanos: btnTabGerPlanos
   };
@@ -361,7 +368,8 @@ function gerenciarAbas(abaAtiva) {
     if (btn) btn.classList.toggle('active', k === abaAtiva);
   });
   if (abaAtiva === 'bloq')        gerarGradeBloqueio();
-  if (abaAtiva === 'clientes')    carregarClientesBloqueados();
+  if (abaAtiva === 'datasesp')    carregarDatasEspeciais();
+  if (abaAtiva === 'clientes')   carregarClientesBloqueados();
   if (abaAtiva === 'assinaturas') carregarAssinaturasPendentes();
   if (abaAtiva === 'gerplanos')   carregarGerenciarPlanos();
 }
@@ -370,6 +378,7 @@ if (btnTabAg)           btnTabAg.onclick           = () => gerenciarAbas('ag');
 if (btnTabServ)         btnTabServ.onclick         = () => gerenciarAbas('serv');
 if (btnTabBloq)         btnTabBloq.onclick         = () => gerenciarAbas('bloq');
 if (btnTabRecesso)      btnTabRecesso.onclick      = () => gerenciarAbas('recesso');
+if (btnTabDatasEsp)     btnTabDatasEsp.onclick     = () => gerenciarAbas('datasesp');
 if (btnTabManual)       btnTabManual.onclick       = () => { gerenciarAbas('manual'); carregarFormularioManual(); };
 if (btnTabClientesBloq) btnTabClientesBloq.onclick = () => gerenciarAbas('clientes');
 if (btnTabAssinaturas)  btnTabAssinaturas.onclick  = () => gerenciarAbas('assinaturas');
@@ -405,6 +414,151 @@ onValue(ref(db, 'configuracoes/recesso'), (snapshot) => {
     boxStatusRecesso.style.display = 'none';
   }
 });
+
+// --- 7.1 DATAS ESPECIAIS (horário diferente em dias específicos) ---
+// Estrutura no Firebase: horarios_especiais/AAAA-MM-DD = { fechado, inicio, fim, motivo }
+// Tem prioridade sobre horarios_funcionamento (semanal) apenas naquele dia.
+const espData     = document.getElementById('esp-data');
+const espTipo     = document.getElementById('esp-tipo');
+const espInicio   = document.getElementById('esp-inicio');
+const espFim      = document.getElementById('esp-fim');
+const espMotivo   = document.getElementById('esp-motivo');
+const espGrpIni   = document.getElementById('esp-grupo-inicio');
+const espGrpFim   = document.getElementById('esp-grupo-fim');
+const btnSalvarEsp  = document.getElementById('btn-salvar-data-esp');
+const listaDatasEsp = document.getElementById('lista-datas-esp');
+const btnLimparEspPassadas = document.getElementById('btn-limpar-datas-esp-passadas');
+let datasEspeciaisCache = {};
+let datasEspeciaisOuvindo = false;
+
+function escaparHtml(txt) {
+  return String(txt ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function atualizarCamposDataEsp() {
+  const fechado = espTipo && espTipo.value === 'fechado';
+  if (espGrpIni) espGrpIni.style.display = fechado ? 'none' : '';
+  if (espGrpFim) espGrpFim.style.display = fechado ? 'none' : '';
+}
+if (espTipo) espTipo.onchange = atualizarCamposDataEsp;
+if (espData) espData.min = hojeISO;
+
+function carregarDatasEspeciais() {
+  atualizarCamposDataEsp();
+  if (datasEspeciaisOuvindo) return;
+  datasEspeciaisOuvindo = true;
+  onValue(ref(db, 'horarios_especiais'), (snap) => {
+    datasEspeciaisCache = snap.val() || {};
+    renderizarDatasEspeciais();
+  });
+}
+
+function renderizarDatasEspeciais() {
+  if (!listaDatasEsp) return;
+  const diasSemana = ["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
+  const entradas = Object.entries(datasEspeciaisCache).sort(([a],[b]) => a.localeCompare(b));
+  const futuras  = entradas.filter(([d]) => d >= hojeISO);
+  const passadas = entradas.filter(([d]) => d < hojeISO);
+
+  if (btnLimparEspPassadas) btnLimparEspPassadas.style.display = passadas.length ? 'inline-block' : 'none';
+
+  if (futuras.length === 0) {
+    listaDatasEsp.innerHTML = '<p style="opacity:.6;padding:14px 0;">Nenhuma data especial cadastrada.</p>';
+    return;
+  }
+
+  listaDatasEsp.innerHTML = '';
+  futuras.forEach(([dataISO, cfg]) => {
+    const dataBR = dataISO.split('-').reverse().join('/');
+    const diaSem = diasSemana[new Date(dataISO + 'T00:00:00').getDay()];
+    const card = document.createElement('div');
+    card.className = `card-data-esp${cfg.fechado ? ' fechado' : ''}`;
+    const situacao = cfg.fechado
+      ? '🔒 Fechado o dia todo'
+      : `🕒 Aberto das <strong>${escaparHtml(cfg.inicio)}</strong> às <strong>${escaparHtml(cfg.fim)}</strong>`;
+    card.innerHTML = `
+      <div>
+        <span class="data-esp-titulo">${dataBR}</span> <small>(${diaSem})</small>
+        ${cfg.motivo ? `<small> — ${escaparHtml(cfg.motivo)}</small>` : ''}<br>
+        <small>${situacao}</small>
+      </div>
+      <div class="btns-card">
+        <button class="btn-edit-ordem btn-edit-esp" title="Editar">✏️ Editar</button>
+        <button class="btn-delete btn-del-esp" title="Remover">🗑 Remover</button>
+      </div>`;
+    card.querySelector('.btn-edit-esp').onclick = () => {
+      espData.value   = dataISO;
+      espTipo.value   = cfg.fechado ? 'fechado' : 'horario';
+      espInicio.value = cfg.inicio || '09:00';
+      espFim.value    = cfg.fim || '14:00';
+      espMotivo.value = cfg.motivo || '';
+      atualizarCamposDataEsp();
+      espData.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    card.querySelector('.btn-del-esp').onclick = async () => {
+      if (!confirm(`Remover a data especial de ${dataBR}? O dia volta a seguir o horário semanal.`)) return;
+      await remove(ref(db, `horarios_especiais/${dataISO}`));
+    };
+    listaDatasEsp.appendChild(card);
+  });
+}
+
+if (btnLimparEspPassadas) {
+  btnLimparEspPassadas.onclick = async () => {
+    const passadas = Object.keys(datasEspeciaisCache).filter(d => d < hojeISO);
+    if (!passadas.length) return;
+    if (!confirm(`Remover ${passadas.length} data(s) especial(is) já passada(s)?`)) return;
+    const updates = {};
+    passadas.forEach(d => { updates[d] = null; });
+    await update(ref(db, 'horarios_especiais'), updates);
+  };
+}
+
+if (btnSalvarEsp) {
+  btnSalvarEsp.onclick = async () => {
+    const dataISO = espData.value;
+    const fechado = espTipo.value === 'fechado';
+    const inicio  = espInicio.value;
+    const fim     = espFim.value;
+    const motivo  = espMotivo.value.trim();
+
+    if (!dataISO) return alert("Selecione a data.");
+    if (dataISO < hojeISO) return alert("Não é possível configurar uma data que já passou.");
+    if (!fechado) {
+      if (!inicio || !fim) return alert("Informe o horário de abertura e de fechamento.");
+      if (paraMinutos(fim) <= paraMinutos(inicio)) return alert("O horário de fechamento precisa ser depois do de abertura.");
+    }
+
+    // Avisa se já existem clientes agendados fora do novo horário
+    const snapAg = await get(agendamentosRef);
+    const agsDoDia = Object.values(snapAg.val() || {}).filter(a =>
+      a && a.data === dataISO && a.cliente !== "BLOQUEADO" && a.servicoId !== "bloqueio");
+    const foraDoHorario = fechado
+      ? agsDoDia
+      : agsDoDia.filter(a => {
+          const ini = paraMinutos(a.hora);
+          return ini < paraMinutos(inicio) || ini > paraMinutos(fim);
+        });
+    const dataBR = dataISO.split('-').reverse().join('/');
+    if (foraDoHorario.length > 0) {
+      const lista = foraDoHorario.map(a => `${a.hora} - ${a.cliente}`).join('\n');
+      const ok = confirm(
+        `Atenção: já existem ${foraDoHorario.length} cliente(s) agendado(s) em ${dataBR} fora desse horário:\n\n${lista}\n\n` +
+        `Eles NÃO serão cancelados automaticamente (avise-os se necessário). Deseja salvar mesmo assim?`);
+      if (!ok) return;
+    }
+
+    const dados = fechado
+      ? { fechado: true, motivo }
+      : { fechado: false, inicio, fim, motivo };
+    await set(ref(db, `horarios_especiais/${dataISO}`), dados);
+
+    alert(`Data especial de ${dataBR} salva!`);
+    espData.value = ""; espMotivo.value = ""; espTipo.value = "horario";
+    espInicio.value = "09:00"; espFim.value = "14:00";
+    atualizarCamposDataEsp();
+  };
+}
 
 // --- 8️⃣ FORM SERVIÇOS E FILTROS ---
 if (formServico) formServico.onsubmit = (e) => {
